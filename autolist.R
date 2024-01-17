@@ -123,7 +123,8 @@ rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
 # I'll note it here since sometimes a new version brings spatial stuff into a
 # previous irrelevant paper, but this is rare.
 .get_rxiv_compare <- function(dois) {
-    str_remove(dois, "^(https://doi.org/)?10\\.1101/")
+    str_remove(dois, "^(https://doi.org/)?10\\.1101/") |>
+        str_remove(";$")
 }
 irrelevant <- read_sheet(sheet_url, sheet = "irrelevant")
 irrelevant <- irrelevant[!is.na(irrelevant$doi),]
