@@ -54,8 +54,11 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
   entries <- lapply(entries, function(x) str_split(x, "\\r\\n")[[1]])
   # Remove names
   entries <- lapply(entries, function(x) {
-    name_inds <- str_detect(x, "[A-Z][a-z]+ [A-Z][a-z]+( ?:[A-Z][a-z]+)?((, )|( and ))")
-    x[!name_inds]
+    name_inds <- which(str_detect(x, "[A-Z][a-z\\.]+ [A-Z][a-z\\.]+( ?:[A-Z][a-z\\.]+)?((, )|( and ))"))
+    # Anything between first line of names and the last 3 lines are names
+    if (length(x)-3 > max(name_inds))
+        name_inds <- c(name_inds, seq(max(name_inds) + 1, length(x) - 3))
+    x[-name_inds]
   })
   # Extract URL
   urls <- vapply(entries, function(x) {
@@ -151,3 +154,6 @@ to_check <- to_check[!duplicated(to_check$URL),]
 
 # Write to sheet------------
 write_sheet(to_check, sheet_url, sheet = "to_check")
+
+# Delete tokens
+file.remove(list.files(pattern = "museumofst"))
