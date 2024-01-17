@@ -10,7 +10,7 @@ The code in this repo automatically finds new potentially relevant spatial trans
 6. In order for this code to work, you need to use a desktop email client to automatically convert your bio/medRxiv feed into plain text and forward to museumofst\@gmail.com. This is hacky but necessary because the Gmail API doesn't download the html email bodies, at least when used with the `gmailr` package. At present, I'm already doing this so you don't need to, but in case you want to take over, please let me know and here's how: I use Thunderbird: 
     - I created a filter: click the 3 horizontal line icon at the top right (Mac version) to op  en a menu
     - Go to "Tools", then "Message Filters"
-    - Click "New..." to create a filter, select "Match all of the following", put From is cs  hljnls-mailer\@alerts.highwire.org, to get both bioRxiv and medRxiv emails
+    - Click "New..." to create a filter, select "Match all of the following", put From is cshljnls-mailer\@alerts.highwire.org, to get both bioRxiv and medRxiv emails
     - Uncheck "Manually Run" to make it run automatically
     - Under "Perform these actions:", you can move all matching emails to a separate folder. Mo  st importantly, Forward messages to museumofst\@gmail.com. Automatic forwarding on the Gm  ail website in the browser won't work because it won't convert the html into plain text.
     - You can add other actions such as Mark as Read or delete the messages
