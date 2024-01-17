@@ -12,7 +12,10 @@ gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
 sheet_url <- "https://docs.google.com/spreadsheets/d/1sJDb9B7AtYmfKv4-m8XR7uc3XXw_k4kGSout8cqZ8bY/edit?usp=sharing"
 
 to_check <- read_sheet(sheet_url, sheet = "to_check")
-to_check <- to_check[!is.na(to_check$date_published),]
+to_check <- to_check[!is.na(to_check$date_added),]
+
+if (!file.exists("last_checked.rds")) saveRDS(as.POSIXct(0), file = "last_checked.rds")
+last_checked <- readRDS("last_checked.rds")
 
 # PubMed--------------
 geomx <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1ZSp7ZOQTWb6f7XIhdYoHOybYnbDfOV6dv96LPTgURfTQ2EgWt/?limit=15&utm_campaign=pubmed-2&fc=20220424112459"
@@ -22,7 +25,7 @@ urls <- c(geomx, st, visium)
 
 .get_pubmed_feed <- function(url, to_check) {
   df <- tidyfeed(url)
-  df <- df[df$item_pub_date >= Sys.Date(),]
+  df <- df[df$item_pub_date > last_checked,]
 
   if (nrow(df)) {
     df$item_guid <- str_remove(df$item_guid, "^pubmed\\:")
@@ -31,6 +34,7 @@ urls <- c(geomx, st, visium)
     df$item_link <- str_remove(df$item_link, "/\\?utm_source.+")
     df <- df[!df$item_link %in% to_check$URL,]
     df$existing_sheet <- NA
+    df$string_match <- NA
     names(df) <- names(to_check)
     to_check <- rbind(to_check, df)
   }
@@ -89,20 +93,20 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
         dates <- vapply(messages, function(x) {
             as.POSIXct(gm_date(x),
                        tryFormats = c("%a, %d %b %Y %T %z",
-                                      "%a, %e %b %Y %T %z")) |>
-                format("%Y-%m-%d")
-        },
-                        FUN.VALUE = character(1))
+                                      "%a, %e %b %Y %T %z"))
+        }, FUN.VALUE = POSIXct(1))
         df <- data.frame(date = dates,
                          subject = subjects,
                          body = vapply(messages, function(x) gm_body(x)[[1]],
                                        FUN.VALUE = character(1)))
-        df <- df[df$date > (Sys.time() - dhours(24)),]
+        df <- df[df$date > last_checked,]
+        df$date <- vapply(df$date, format, format = "%Y-%m-%d",
+                          FUN.VALUE = character(1))
         if (nrow(df)) {
             cat("Reading", subject, "\n")
             df2 <- mapply(function(body, date) {
                 out <- .extract_rxiv_info(body)
-                out$date_published <- date
+                out$date_added <- date
                 out[,c(4, 1:3)]
             }, body = df$body, date = df$date, SIMPLIFY = FALSE)
             df2 <- do.call(rbind, df2)
@@ -115,46 +119,52 @@ biorxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "bioR
 medrxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "medRxiv")
 
 rxiv_res <- do.call(rbind, c(biorxiv_res, medrxiv_res))
-rxiv_res$existing_sheet <- NA
-rownames(rxiv_res) <- NULL
-rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
+if (!is.null(rxiv_res)) {
+    rxiv_res$existing_sheet <- NA
+    rownames(rxiv_res) <- NULL
+    rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
+}
 
-# Check for relevance---------
-# I'll note it here since sometimes a new version brings spatial stuff into a
-# previous irrelevant paper, but this is rare.
 .get_rxiv_compare <- function(dois) {
     str_remove(dois, "^(https://doi.org/)?10\\.1101/") |>
         str_remove(";$")
 }
-irrelevant <- read_sheet(sheet_url, sheet = "irrelevant")
-irrelevant <- irrelevant[!is.na(irrelevant$doi),]
-# This only applies to preprints where further versions can show up in RSS
-irrelevant <- irrelevant[str_detect(irrelevant$doi, "^10\\.1101/\\d"),]
-irrelevant <- .get_rxiv_compare(irrelevant$doi)
-part_match <- str_extract(rxiv_res$URL, "(?<=/)[\\d\\.]+$")
-rxiv_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
+if (!is.null(rxiv_res)) {
+    # Check for relevance---------
+    # I'll note it here since sometimes a new version brings spatial stuff into a
+    # previous irrelevant paper, but this is rare.
+    irrelevant <- read_sheet(sheet_url, sheet = "irrelevant")
+    irrelevant <- irrelevant[!is.na(irrelevant$doi),]
+    # This only applies to preprints where further versions can show up in RSS
+    irrelevant <- irrelevant[str_detect(irrelevant$doi, "^10\\.1101/\\d"),]
+    irrelevant <- .get_rxiv_compare(irrelevant$doi)
+    part_match <- str_extract(rxiv_res$URL, "(?<=/)[\\d\\.]+$")
+    rxiv_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
 
-# Check if it's already present----------
-# What to do? I think I'll note it here since new versions sometimes have new datasets
-# Again only applies to subsequent versions of preprints
-sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
-                "Analysis", "Prequel analysis")
-for (s in sheets_use) {
-    sh <- read_sheet(sheet_url, s)
-    ref <- .get_rxiv_compare(unique(sh$URL))
-    inds <- part_match %in% ref
-    if (any(inds)) {
-        rxiv_res$existing_sheet[inds] <- vapply(rxiv_res$existing_sheet[inds], function(x) {
-            if (is.na(x)) s else paste(x, s, sep = ", ")
-        }, FUN.VALUE = character(1))
+    # Check if it's already present----------
+    # What to do? I think I'll note it here since new versions sometimes have new datasets
+    # Again only applies to subsequent versions of preprints
+    sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
+                    "Analysis", "Prequel analysis")
+    for (s in sheets_use) {
+        sh <- read_sheet(sheet_url, s)
+        ref <- .get_rxiv_compare(unique(sh$URL))
+        inds <- part_match %in% ref
+        if (any(inds)) {
+            rxiv_res$existing_sheet[inds] <- vapply(rxiv_res$existing_sheet[inds], function(x) {
+                if (is.na(x)) s else paste(x, s, sep = ", ")
+            }, FUN.VALUE = character(1))
+        }
     }
-}
 
-to_check <- rbind(to_check, rxiv_res)
-to_check <- to_check[!duplicated(to_check$URL),]
+    to_check <- rbind(to_check, rxiv_res)
+    to_check <- to_check[!duplicated(to_check$URL),]
+}
 
 # Write to sheet------------
 write_sheet(to_check, sheet_url, sheet = "to_check")
+last_checked <- Sys.time()
+saveRDS(last_checked, "last_checked.rds")
 
 # Delete tokens
 file.remove(list.files(pattern = "museumofst"))
