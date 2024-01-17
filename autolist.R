@@ -4,6 +4,7 @@ library(gmailr)
 library(gargle)
 library(stringr)
 library(lubridate)
+library(rbiorxiv)
 
 # Gmail OAuth-----------
 gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
@@ -35,6 +36,7 @@ urls <- c(geomx, st, visium)
     df <- df[!df$item_link %in% to_check$URL,]
     df$existing_sheet <- NA
     df$string_match <- NA
+    df$journal <- NA
     names(df) <- names(to_check)
     to_check <- rbind(to_check, df)
   }
@@ -100,14 +102,15 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
                          body = vapply(messages, function(x) gm_body(x)[[1]],
                                        FUN.VALUE = character(1)))
         df <- df[df$date > last_checked,]
-        df$date <- vapply(df$date, format, format = "%Y-%m-%d",
+        df$date <- vapply(df$date, function(x) format(as.POSIXct(x), "%Y-%m-%d"),
                           FUN.VALUE = character(1))
         if (nrow(df)) {
             cat("Reading", subject, "\n")
             df2 <- mapply(function(body, date) {
                 out <- .extract_rxiv_info(body)
                 out$date_added <- date
-                out[,c(4, 1:3)]
+                out$journal <- rxiv
+                out
             }, body = df$body, date = df$date, SIMPLIFY = FALSE)
             df2 <- do.call(rbind, df2)
         } else return(NULL)
@@ -125,8 +128,9 @@ if (!is.null(rxiv_res)) {
     rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
 }
 
-.get_rxiv_compare <- function(dois) {
-    str_remove(dois, "^(https://doi.org/)?10\\.1101/") |>
+.get_rxiv_compare <- function(dois, rm_pfx = TRUE) {
+    regex_use <- if (rm_pfx) "^(https://doi.org/)?10\\.1101/" else "^https://doi.org/"
+    str_remove(dois, regex_use) |>
         str_remove(";$")
 }
 if (!is.null(rxiv_res)) {
@@ -139,6 +143,7 @@ if (!is.null(rxiv_res)) {
     irrelevant <- irrelevant[str_detect(irrelevant$doi, "^10\\.1101/\\d"),]
     irrelevant <- .get_rxiv_compare(irrelevant$doi)
     part_match <- str_extract(rxiv_res$URL, "(?<=/)[\\d\\.]+$")
+    rxiv_res$string_match <- part_match
     rxiv_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
 
     # Check if it's already present----------
@@ -148,12 +153,35 @@ if (!is.null(rxiv_res)) {
                     "Analysis", "Prequel analysis")
     for (s in sheets_use) {
         sh <- read_sheet(sheet_url, s)
-        ref <- .get_rxiv_compare(unique(sh$URL))
-        inds <- part_match %in% ref
-        if (any(inds)) {
-            rxiv_res$existing_sheet[inds] <- vapply(rxiv_res$existing_sheet[inds], function(x) {
-                if (is.na(x)) s else paste(x, s, sep = ", ")
-            }, FUN.VALUE = character(1))
+        sh$date_published <- as.character(sh$date_published)
+        ref <- .get_rxiv_compare(sh$URL)
+        inds <- match(part_match, ref)
+        for (j in seq_along(inds)) {
+            i <- inds[j]
+            if (is.na(i)) next
+            s_use <- paste0(s, " (", i+1, ")") # +1 to account for header
+            if (is.na(rxiv_res$existing_sheet[i]))
+                rxiv_res$existing_sheet[j] <- s_use
+            else
+                rxiv_res$existing_sheet[j] <- paste(rxiv_res$existing_sheet[j],
+                                                    s_use, sep = ", ")
+            # Update titles
+            title_old <- sh$title[i]
+            title_new <- rxiv_res$title[j]
+            inds_update <- ref == part_match
+            if (title_new != title_old) {
+                sh$title[inds_update] <- title_new
+            }
+            # Update date, need bioRxiv API
+            doi_use <- .get_rxiv_compare(sh$URL[i], FALSE)
+            content <- biorxiv_content(server = rxiv_res$journal[j] |> str_to_lower(),
+                                       doi = doi_use)
+            # Get newest version
+            content <- content[[length(content)]]
+            sh$date_published[inds_update] <- content$date
+        }
+        if (!all(is.na(inds))) {
+            write_sheet(sh, sheet_url, sheet = s)
         }
     }
 
