@@ -3,7 +3,7 @@ Title: Put PubMed and bioRxiv RSS to Museum sheet
 Version: 0.0.0.9000
 Authors@R: 
     person("Lambda", "Moses", , "dlu2@caltech.edu, role = c("aut", "cre"),
-           comment = c(ORCID = ""))
+           comment = c(ORCID = "0000-0002-7092-9427"))
 Description: Automatially get feed from PubMed and bio or medRxiv using keywords
     and upload to a sheet for multiple people to update the museum database.
 License: GPL (>= 3)

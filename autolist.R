@@ -1,5 +1,3 @@
-args <- commandArgs(trailingOnly = TRUE)
-
 library(tidyRSS)
 library(googlesheets4)
 library(gmailr)
@@ -8,11 +6,9 @@ library(stringr)
 library(lubridate)
 
 # Gmail OAuth-----------
-client <- gargle_oauth_client(id = args[1], secret = args[2],
-                              redirect_uris = "http://localhost", type = "installed",
-                              name = "autolist")
-gs4_auth_configure(client)
-gm_auth_configure(client)
+gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
+gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
+
 sheet_url <- "https://docs.google.com/spreadsheets/d/1sJDb9B7AtYmfKv4-m8XR7uc3XXw_k4kGSout8cqZ8bY/edit?usp=sharing"
 
 to_check <- read_sheet(sheet_url, sheet = "to_check")
@@ -26,7 +22,7 @@ urls <- c(geomx, st, visium)
 
 .get_pubmed_feed <- function(url, to_check) {
   df <- tidyfeed(url)
-  df <- df[df$item_pub_date > (Sys.time() - dhours(24)),]
+  df <- df[df$item_pub_date >= Sys.Date(),]
 
   if (nrow(df)) {
     df$item_guid <- str_remove(df$item_guid, "^pubmed\\:")
@@ -46,19 +42,19 @@ for (u in urls) {
 }
 
 # bio/medRxiv------------------
-my_threads <- gm_threads(num_results = 20)
+threads <- gm_threads(num_results = 20)
 terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX", "ISS", "CosMX", "xenium")
 
 .extract_rxiv_info <- function(m) { # For one message
   entries <- str_split(m, "\\r\\n\\r\\n")[[1]]
   entries <- entries[!str_detect(entries, "Forwarded M|message")]
   entries <- entries[!str_detect(entries, "Unsubscribe")]
-  entries <- entries[str_length(entries) > 1L]
+  entries <- entries[str_length(entries) > 4L]
   entries[1] <- str_split(entries[1], "Results\\:\\r\\n")[[1]][2]
   entries <- lapply(entries, function(x) str_split(x, "\\r\\n")[[1]])
   # Remove names
   entries <- lapply(entries, function(x) {
-    name_inds <- str_detect(x, "[A-Z][a-z]+ [A-Z][a-z]+( ?:[A-Z][a-z]+)?(, )|( and )")
+    name_inds <- str_detect(x, "[A-Z][a-z]+ [A-Z][a-z]+( ?:[A-Z][a-z]+)?((, )|( and ))")
     x[!name_inds]
   })
   # Extract URL
@@ -78,7 +74,7 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
 # Function to get URL, title, date from one term
 .get_rxiv_feed <- function(threads, term, rxiv = "bioRxiv") {
     ids <- gm_id(threads)
-    messages <- lapply(ids, function(x) gm_thread(x)$messages[[1]])
+    messages <- lapply(ids, function(x) gm_thread(x)$messages[[2]])
     # Gmail API doesn't pull body of html emails
     # Have to forward to get the body, hacky but works
     subject <- paste0("Fwd: ", rxiv, ": ", term)
@@ -87,16 +83,20 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
     if (length(inds)) {
         messages <- messages[inds]
         subjects <- subjects[inds]
-        dates <- vapply(messages, function(x) as.POSIXct(gm_date(x),
-                                                         tryFormats = c("%a, %d %b %Y %T %z",
-                                                                        "%a, %e %b %Y %T %z")),
-                        FUN.VALUE = Date(1))
+        dates <- vapply(messages, function(x) {
+            as.POSIXct(gm_date(x),
+                       tryFormats = c("%a, %d %b %Y %T %z",
+                                      "%a, %e %b %Y %T %z")) |>
+                format("%Y-%m-%d")
+        },
+                        FUN.VALUE = character(1))
         df <- data.frame(date = dates,
                          subject = subjects,
                          body = vapply(messages, function(x) gm_body(x)[[1]],
                                        FUN.VALUE = character(1)))
         df <- df[df$date > (Sys.time() - dhours(24)),]
         if (nrow(df)) {
+            cat("Reading", subject, "\n")
             df2 <- mapply(function(body, date) {
                 out <- .extract_rxiv_info(body)
                 out$date_published <- date
@@ -108,11 +108,12 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
     df2
 }
 
-biorxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = my_threads, rxiv = "bioRxiv")
-medrxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = my_threads, rxiv = "medRxiv")
+biorxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "bioRxiv")
+medrxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "medRxiv")
 
 rxiv_res <- do.call(rbind, c(biorxiv_res, medrxiv_res))
 rxiv_res$existing_sheet <- NA
+rownames(rxiv_res) <- NULL
 rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
 
 # Check for relevance---------
