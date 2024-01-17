@@ -1,0 +1,19 @@
+Package: pubmed_rss
+Title: Put PubMed and bioRxiv RSS to Museum sheet
+Version: 0.0.0.9000
+Authors@R: 
+    person("Lambda", "Moses", , "dlu2@caltech.edu, role = c("aut", "cre"),
+           comment = c(ORCID = ""))
+Description: Automatially get feed from PubMed and bio or medRxiv using keywords
+    and upload to a sheet for multiple people to update the museum database.
+License: GPL (>= 3)
+Imports: 
+    gargle,
+    gmailr,
+    googlesheets4,
+    lubridate,
+    stringr,
+    tidyRSS
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.0
