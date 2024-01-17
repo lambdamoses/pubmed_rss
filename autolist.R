@@ -113,7 +113,7 @@ medrxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = my_threads, rxiv = "m
 
 rxiv_res <- do.call(rbind, c(biorxiv_res, medrxiv_res))
 rxiv_res$existing_sheet <- NA
-rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL)]
+rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
 
 # Check for relevance---------
 # I'll note it here since sometimes a new version brings spatial stuff into a
@@ -146,7 +146,7 @@ for (s in sheets_use) {
 }
 
 to_check <- rbind(to_check, rxiv_res)
-to_check <- to_check[!duplicated(to_check$URL)]
+to_check <- to_check[!duplicated(to_check$URL),]
 
 # Write to sheet------------
 write_sheet(to_check, sheet_url, sheet = "to_check")
