@@ -11,8 +11,7 @@ jobs:
     concurrency:
       group: pkgdown-${{ github.event_name != 'pull_request' || github.run_id }}
     env:
-      CLIENT_ID: ${{ secrets.CLIENT_ID }}
-      CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+      GARGLE_KEY = ${{ secrets.GARGLE_KEY }}
     steps:
       - uses: actions/checkout@v3
         with:
