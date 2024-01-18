@@ -3,7 +3,6 @@ library(gmailr)
 library(gargle)
 library(stringr)
 library(lubridate)
-library(rbiorxiv)
 library(rss)
 
 # Gmail OAuth-----------
@@ -13,7 +12,7 @@ gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
 sheet_url <- "https://docs.google.com/spreadsheets/d/1sJDb9B7AtYmfKv4-m8XR7uc3XXw_k4kGSout8cqZ8bY/edit?usp=sharing"
 
 to_check <- read_sheet(sheet_url, sheet = "to_check")
-to_check <- to_check[!is.na(to_check$date_added),]
+to_check <- to_check[!is.na(to_check$date_published),]
 
 if (!file.exists("last_checked.rds")) saveRDS(as.POSIXct(0), file = "last_checked.rds")
 last_checked <- readRDS("last_checked.rds")
@@ -24,64 +23,71 @@ st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCM
 visium <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1R__6bbhMkenq1M5NePyMAVwqIH-27yBjh8XiC1LGlM6ICAAn2/?limit=15&utm_campaign=pubmed-2&fc=20220424112410"
 urls <- c(geomx, st, visium)
 
-.get_pubmed_feed <- function(url, to_check) {
+.get_pubmed_feed <- function(url) {
     feed <- getFeed(url)$items
-    df <- data.frame(date_added = vapply(feed, function(x) as.POSIXct(x$pubDate), FUN.VALUE = POSIXct(1)),
+    df <- data.frame(date_published = vapply(feed, function(x) as.POSIXct(x$pubDate), FUN.VALUE = POSIXct(1)),
                      title = vapply(feed, function(x) x$title, FUN.VALUE = character(1)),
-                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:"), FUN.VALUE = character(1)),
+                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:") |> as.integer(), FUN.VALUE = character(1)),
                      journal = vapply(feed, function(x) x$source |> str_to_title(), FUN.VALUE = character(1)),
-                     URL = vapply(feed, function(x) x$link |> str_remove("/\\?utm_source.+"), FUN.VALUE = character(1)))
-    df <- df[df$date_added > last_checked,]
+                     URL = vapply(feed, function(x) {
+                         names(x) <- make.unique(names(x))
+                         # should be the last identifier
+                         name_use <- names(x)[max(which(str_detect(names(x), "^identifier")))]
+                         paste0("https://doi.org/", str_remove(x[[name_use]], "^doi\\:"))
+                     }, FUN.VALUE = character(1)))
+    df <- df[df$date_published > last_checked,]
     if (nrow(df)) {
-        df$date_added <- df$date_added |> as.POSIXct() |> format("%Y-%m-%d")
-        df$string_match <- NA
-        df$existing_sheet <- NA
-        to_check <- rbind(to_check, df)
-    }
-    to_check
+        df$date_published <- df$date_published |> as.POSIXct() |> format("%Y-%m-%d")
+        return(df)
+    } else return(NULL)
 }
 
-for (u in urls) {
-  to_check <- .get_pubmed_feed(u, to_check)
-}
+pubmed_res <- lapply(urls, .get_pubmed_feed)
 
 # bio/medRxiv------------------
 threads <- gm_threads(num_results = 20)
-terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX", "ISS", "CosMX", "xenium")
+terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX", "in situ sequenc", "CosMX", "xenium")
 
 .extract_rxiv_info <- function(m) { # For one message
-  entries <- str_split(m, "\\r\\n\\r\\n")[[1]]
-  entries <- entries[!str_detect(entries, "Forwarded M|message")]
-  entries <- entries[!str_detect(entries, "Unsubscribe")]
-  entries <- entries[str_length(entries) > 4L]
-  entries[1] <- str_split(entries[1], "Results\\:\\r\\n")[[1]][2]
-  entries <- lapply(entries, function(x) str_split(x, "\\r\\n")[[1]])
-  # Remove names
-  entries <- lapply(entries, function(x) {
+    entries <- str_split(m, "\\r\\n\\r\\n")[[1]]
+    entries <- entries[!str_detect(entries, "Forwarded M|message")]
+    entries <- entries[!str_detect(entries, "Unsubscribe")]
+    entries <- entries[str_length(entries) > 4L]
+    entries[1] <- str_split(entries[1], "Results\\:\\r\\n")[[1]][2]
+    entries <- lapply(entries, function(x) str_split(x, "\\r\\n")[[1]])
+    # Remove names
+    entries <- lapply(entries, function(x) {
     name_inds <- which(str_detect(x, "[A-Z][a-z\\.]+ [A-Z][a-z\\.]+( ?:[A-Z][a-z\\.]+)?((, )|( and ))"))
     # Anything between first line of names and the last 3 lines are names
     if (length(x)-3 > max(name_inds))
         name_inds <- c(name_inds, seq(max(name_inds) + 1, length(x) - 3))
     x[-name_inds]
   })
-  # Extract URL
-  urls <- vapply(entries, function(x) {
-    x[str_detect(x, "^http\\://")] |> str_trim()
-  }, FUN.VALUE = character(1))
-  # Extract titles
-  titles <- vapply(entries, function(x) {
-    x <- x[-c((length(x)-2):length(x))]
-    paste(x, collapse = "")
-  }, FUN.VALUE = character(1))
-  data.frame(title = titles,
-             pmid = NA,
-             URL = urls)
+    # Extract URL
+    urls <- vapply(entries, function(x) {
+        x[str_detect(x, "^http\\://")] |> str_trim()
+    }, FUN.VALUE = character(1))
+    # Extract titles
+    titles <- vapply(entries, function(x) {
+        x <- x[-c((length(x)-2):length(x))]
+        paste(x, collapse = "")
+    }, FUN.VALUE = character(1))
+    # Extract date posted
+    date_regex <- "(?<=posted )\\d+ [A-Za-z]+ 20\\d{2}(?=,)"
+    dates <- vapply(entries, function(x) {
+        x <- x[str_detect(x, date_regex)]
+        dmy(str_extract(x, date_regex)) |> format("%Y-%m-%d")
+    }, FUN.VALUE = character(1))
+    data.frame(date_published = dates,
+               title = titles,
+               pmid = NA,
+               URL = urls)
 }
 
 # Function to get URL, title, date from one term
 .get_rxiv_feed <- function(threads, term, rxiv = "bioRxiv") {
     ids <- gm_id(threads)
-    messages <- lapply(ids, function(x) gm_thread(x)$messages[[2]])
+    messages <- lapply(ids, function(x) gm_thread(x)$messages[[length(gm_thread(x)$messages)]])
     # Gmail API doesn't pull body of html emails
     # Have to forward to get the body, hacky but works
     subject <- paste0("Fwd: ", rxiv, ": ", term)
@@ -95,21 +101,18 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
                        tryFormats = c("%a, %d %b %Y %T %z",
                                       "%a, %e %b %Y %T %z"))
         }, FUN.VALUE = POSIXct(1))
-        df <- data.frame(date = dates,
+        df <- data.frame(date = dates, # Here when I got the feed not when published
                          subject = subjects,
                          body = vapply(messages, function(x) gm_body(x)[[1]],
                                        FUN.VALUE = character(1)))
         df <- df[df$date > last_checked,]
-        df$date <- vapply(df$date, function(x) format(as.POSIXct(x), "%Y-%m-%d"),
-                          FUN.VALUE = character(1))
         if (nrow(df)) {
             cat("Reading", subject, "\n")
-            df2 <- mapply(function(body, date) {
+            df2 <- lapply(df$body, function(body) {
                 out <- .extract_rxiv_info(body)
-                out$date_added <- date
                 out$journal <- rxiv
                 out
-            }, body = df$body, date = df$date, SIMPLIFY = FALSE)
+            })
             df2 <- do.call(rbind, df2)
         } else return(NULL)
     } else return(NULL)
@@ -119,11 +122,11 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
 biorxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "bioRxiv")
 medrxiv_res <- lapply(terms_bio, .get_rxiv_feed, threads = threads, rxiv = "medRxiv")
 
-rxiv_res <- do.call(rbind, c(biorxiv_res, medrxiv_res))
-if (!is.null(rxiv_res)) {
-    rxiv_res$existing_sheet <- NA
-    rownames(rxiv_res) <- NULL
-    rxiv_res <- rxiv_res[!duplicated(rxiv_res$URL),]
+new_res <- do.call(rbind, c(biorxiv_res, medrxiv_res, pubmed_res))
+if (!is.null(new_res)) {
+    new_res$existing_sheet <- NA
+    rownames(new_res) <- NULL
+    new_res <- new_res[!duplicated(new_res$URL),]
 }
 
 .get_rxiv_compare <- function(dois, rm_pfx = TRUE) {
@@ -131,7 +134,12 @@ if (!is.null(rxiv_res)) {
     str_remove(dois, regex_use) |>
         str_remove(";$")
 }
-if (!is.null(rxiv_res)) {
+
+.simp_str <- function(x) {
+    str_remove_all(x, "\\p{P}") |> str_to_lower()
+}
+
+if (!is.null(new_res)) {
     # Check for relevance---------
     # I'll note it here since sometimes a new version brings spatial stuff into a
     # previous irrelevant paper, but this is rare.
@@ -140,50 +148,48 @@ if (!is.null(rxiv_res)) {
     # This only applies to preprints where further versions can show up in RSS
     irrelevant <- irrelevant[str_detect(irrelevant$doi, "^10\\.1101/\\d"),]
     irrelevant <- .get_rxiv_compare(irrelevant$doi)
-    part_match <- str_extract(rxiv_res$URL, "(?<=/)[\\d\\.]+$")
-    rxiv_res$string_match <- part_match
-    rxiv_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
+    part_match <- str_extract(new_res$URL, "(?<=/)[\\d\\.]+$")
+    title_simp <- .simp_str(new_res$title)
+    new_res$string_match <- part_match
+    new_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
 
     # Check if it's already present----------
     # What to do? I think I'll note it here since new versions sometimes have new datasets
     # Again only applies to subsequent versions of preprints
     sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
-                    "Analysis", "Prequel analysis")
+                    "Analysis", "Prequel analysis", "Reanalysis")
     for (s in sheets_use) {
         sh <- read_sheet(sheet_url, s)
         sh$date_published <- as.character(sh$date_published)
         ref <- .get_rxiv_compare(sh$URL)
+        ref_title <- .simp_str(sh$title)
         inds <- match(part_match, ref)
+        indst <- match(title_simp, ref_title)
         for (j in seq_along(inds)) {
             i <- inds[j]
+            if (is.na(i)) i <- indst[j]
             if (is.na(i)) next
             s_use <- paste0(s, " (", i+1, ")") # +1 to account for header
-            if (is.na(rxiv_res$existing_sheet[i]))
-                rxiv_res$existing_sheet[j] <- s_use
+            if (is.na(new_res$existing_sheet[i]))
+                new_res$existing_sheet[j] <- s_use
             else
-                rxiv_res$existing_sheet[j] <- paste(rxiv_res$existing_sheet[j],
+                new_res$existing_sheet[j] <- paste(new_res$existing_sheet[j],
                                                     s_use, sep = ", ")
-            # Update titles
-            title_old <- sh$title[i]
-            title_new <- rxiv_res$title[j]
-            inds_update <- ref == part_match
-            if (title_new != title_old) {
-                sh$title[inds_update] <- title_new
-            }
-            # Update date, need bioRxiv API
-            doi_use <- .get_rxiv_compare(sh$URL[i], FALSE)
-            content <- biorxiv_content(server = rxiv_res$journal[j] |> str_to_lower(),
-                                       doi = doi_use)
-            # Get newest version
-            content <- content[[length(content)]]
-            sh$date_published[inds_update] <- content$date
+            # Update entries already found
+            inds_update <- which((ref == part_match[j]) | (ref_title == title_simp[j]))
+            # Also update URL if new entry is in pubmed
+            if (str_detect(new_res$journal[j], "Rxiv$"))
+                cols_use <- c("date_published", "title")
+            else
+                cols_use <- c("date_published", "title", "pmid", "journal", "URL")
+            sh[inds_update, cols_use] <- new_res[j, cols_use]
         }
-        if (!all(is.na(inds))) {
+        if (!all(is.na(inds)) && !all(is.na(indst))) {
             write_sheet(sh, sheet_url, sheet = s)
         }
     }
 
-    to_check <- rbind(to_check, rxiv_res)
+    to_check <- rbind(to_check, new_res)
     to_check <- to_check[!duplicated(to_check$title),]
 }
 
