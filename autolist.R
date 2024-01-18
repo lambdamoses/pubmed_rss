@@ -4,7 +4,7 @@ library(gargle)
 library(stringr)
 library(lubridate)
 library(rss)
-
+library(rbiorxiv)
 # Gmail OAuth-----------
 gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
 gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
@@ -25,9 +25,9 @@ urls <- c(geomx, st, visium)
 
 .get_pubmed_feed <- function(url) {
     feed <- getFeed(url)$items
-    df <- data.frame(date_published = vapply(feed, function(x) as.POSIXct(x$pubDate), FUN.VALUE = POSIXct(1)),
+    df <- data.frame(date_published = vapply(feed, function(x) as.POSIXct(x$pubDate, tz = "UTC"), FUN.VALUE = POSIXct(1)),
                      title = vapply(feed, function(x) x$title, FUN.VALUE = character(1)),
-                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:") |> as.integer(), FUN.VALUE = character(1)),
+                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:") |> as.integer(), FUN.VALUE = integer(1)),
                      journal = vapply(feed, function(x) x$source |> str_to_title(), FUN.VALUE = character(1)),
                      URL = vapply(feed, function(x) {
                          names(x) <- make.unique(names(x))
@@ -37,7 +37,7 @@ urls <- c(geomx, st, visium)
                      }, FUN.VALUE = character(1)))
     df <- df[df$date_published > last_checked,]
     if (nrow(df)) {
-        df$date_published <- df$date_published |> as.POSIXct() |> format("%Y-%m-%d")
+        df$date_published <- df$date_published |> as.POSIXct()
         return(df)
     } else return(NULL)
 }
@@ -72,12 +72,13 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
         x <- x[-c((length(x)-2):length(x))]
         paste(x, collapse = "")
     }, FUN.VALUE = character(1))
+
     # Extract date posted
     date_regex <- "(?<=posted )\\d+ [A-Za-z]+ 20\\d{2}(?=,)"
     dates <- vapply(entries, function(x) {
         x <- x[str_detect(x, date_regex)]
-        dmy(str_extract(x, date_regex)) |> format("%Y-%m-%d")
-    }, FUN.VALUE = character(1))
+        as.POSIXct(str_extract(x, date_regex), tryFormats = "%e %B %Y")
+    }, FUN.VALUE = POSIXct(1))
     data.frame(date_published = dates,
                title = titles,
                pmid = NA,
@@ -149,9 +150,14 @@ if (!is.null(new_res)) {
     irrelevant <- irrelevant[str_detect(irrelevant$doi, "^10\\.1101/\\d"),]
     irrelevant <- .get_rxiv_compare(irrelevant$doi)
     part_match <- str_extract(new_res$URL, "(?<=/)[\\d\\.]+$")
+    part_match[!str_detect(new_res$journal, "Rxiv$")] <- NA
     title_simp <- .simp_str(new_res$title)
     new_res$string_match <- part_match
     new_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
+    new_res$updated <- FALSE
+    # Deal with bioRxiv and medRxiv entries from PubMed
+    new_res$journal[str_detect(new_res$journal, "Biorxiv")] <- "bioRxiv"
+    new_res$journal[str_detect(new_res$journal, "Medrxiv")] <- "medRxiv"
 
     # Check if it's already present----------
     # What to do? I think I'll note it here since new versions sometimes have new datasets
@@ -159,11 +165,12 @@ if (!is.null(new_res)) {
     sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
                     "Analysis", "Prequel analysis", "Reanalysis")
     for (s in sheets_use) {
-        sh <- read_sheet(sheet_url, s)
-        sh$date_published <- as.character(sh$date_published)
+        sh <- read_sheet(sheet_url, s, guess_max = 10)
+        sh$date_published <- as.POSIXct(ymd(sh$date_published), tz = "UTC") |> as.numeric()
         ref <- .get_rxiv_compare(sh$URL)
         ref_title <- .simp_str(sh$title)
         inds <- match(part_match, ref)
+        inds[is.na(part_match)] <- NA
         indst <- match(title_simp, ref_title)
         for (j in seq_along(inds)) {
             i <- inds[j]
@@ -178,22 +185,37 @@ if (!is.null(new_res)) {
             # Update entries already found
             inds_update <- which((ref == part_match[j]) | (ref_title == title_simp[j]))
             # Also update URL if new entry is in pubmed
-            if (str_detect(new_res$journal[j], "Rxiv$"))
-                cols_use <- c("date_published", "title")
-            else
+            if (str_detect(new_res$journal[j], "Rxiv$")) {
+                # Update date, need bioRxiv API
+                doi_use <- .get_rxiv_compare(sh$URL[i], FALSE)
+                content <- biorxiv_content(server = new_res$journal[j] |> str_to_lower(),
+                                           doi = doi_use)
+                # Get newest version
+                content <- content[[length(content)]]
+                new_res$date_published[j] <- as.POSIXct(content$date, tz = "UTC")
+                cols_use <- c("date_published", "title", "journal")
+            } else
                 cols_use <- c("date_published", "title", "pmid", "journal", "URL")
-            sh[inds_update, cols_use] <- new_res[j, cols_use]
+            if (is.na(sh$date_published[i]) || (new_res$date_published[j] > sh$date_published[i])) {
+                sh[inds_update, cols_use] <- new_res[j, cols_use]
+                new_res$updated[j] <- TRUE
+            }
         }
-        if (!all(is.na(inds)) && !all(is.na(indst))) {
+        if (any(new_res$updated & str_detect(new_res$existing_sheet, s))) {
+            # Write sheet if some entries have been updated
+            sh$date_published <- format(as.POSIXct(sh$date_published, tz = "UTC"), "%Y/%m/%d")
             write_sheet(sh, sheet_url, sheet = s)
         }
     }
-
+    # Remove old entries that are already updated in the database
+    new_res <- new_res[!(!new_res$updated & !is.na(new_res$existing_sheet)), ]
+    new_res$updated <- NULL
     to_check <- rbind(to_check, new_res)
     to_check <- to_check[!duplicated(to_check$title),]
 }
 
 # Write to sheet------------
+to_check$date_published <- format(as.POSIXct(to_check$date_published), "%Y/%m/%d")
 write_sheet(to_check, sheet_url, sheet = "to_check")
 last_checked <- Sys.time()
 saveRDS(last_checked, "last_checked.rds")
