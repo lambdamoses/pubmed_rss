@@ -24,13 +24,13 @@ st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCM
 visium <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1R__6bbhMkenq1M5NePyMAVwqIH-27yBjh8XiC1LGlM6ICAAn2/?limit=15&utm_campaign=pubmed-2&fc=20220424112410"
 urls <- c(geomx, st, visium)
 
-.get_pubmed_feed2 <- function(url, to_check) {
+.get_pubmed_feed <- function(url, to_check) {
     feed <- getFeed(url)$items
     df <- data.frame(date_added = vapply(feed, function(x) as.POSIXct(x$pubDate), FUN.VALUE = POSIXct(1)),
                      title = vapply(feed, function(x) x$title, FUN.VALUE = character(1)),
                      pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:"), FUN.VALUE = character(1)),
                      journal = vapply(feed, function(x) x$source |> str_to_title(), FUN.VALUE = character(1)),
-                     URL = vapply(feed, function(x) x$link, FUN.VALUE = character(1)))
+                     URL = vapply(feed, function(x) x$link |> str_remove("/\\?utm_source.+"), FUN.VALUE = character(1)))
     df <- df[df$date_added > last_checked,]
     if (nrow(df)) {
         df$date_added <- df$date_added |> as.POSIXct() |> format("%Y-%m-%d")
@@ -184,7 +184,7 @@ if (!is.null(rxiv_res)) {
     }
 
     to_check <- rbind(to_check, rxiv_res)
-    to_check <- to_check[!duplicated(to_check$URL),]
+    to_check <- to_check[!duplicated(to_check$title),]
 }
 
 # Write to sheet------------
