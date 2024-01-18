@@ -1,10 +1,10 @@
-library(tidyRSS)
 library(googlesheets4)
 library(gmailr)
 library(gargle)
 library(stringr)
 library(lubridate)
 library(rbiorxiv)
+library(rss)
 
 # Gmail OAuth-----------
 gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
@@ -24,23 +24,21 @@ st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCM
 visium <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1R__6bbhMkenq1M5NePyMAVwqIH-27yBjh8XiC1LGlM6ICAAn2/?limit=15&utm_campaign=pubmed-2&fc=20220424112410"
 urls <- c(geomx, st, visium)
 
-.get_pubmed_feed <- function(url, to_check) {
-  df <- tidyfeed(url)
-  df <- df[df$item_pub_date > last_checked,]
-
-  if (nrow(df)) {
-    df$item_guid <- str_remove(df$item_guid, "^pubmed\\:")
-    df <- df[, c("item_pub_date", "item_title", "item_guid", "item_link")]
-    df$item_pub_date <- format(df$item_pub_date, "%Y-%m-%d")
-    df$item_link <- str_remove(df$item_link, "/\\?utm_source.+")
-    df <- df[!df$item_link %in% to_check$URL,]
-    df$existing_sheet <- NA
-    df$string_match <- NA
-    df$journal <- NA
-    names(df) <- names(to_check)
-    to_check <- rbind(to_check, df)
-  }
-  to_check
+.get_pubmed_feed2 <- function(url, to_check) {
+    feed <- getFeed(url)$items
+    df <- data.frame(date_added = vapply(feed, function(x) as.POSIXct(x$pubDate), FUN.VALUE = POSIXct(1)),
+                     title = vapply(feed, function(x) x$title, FUN.VALUE = character(1)),
+                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:"), FUN.VALUE = character(1)),
+                     journal = vapply(feed, function(x) x$source |> str_to_title(), FUN.VALUE = character(1)),
+                     URL = vapply(feed, function(x) x$link, FUN.VALUE = character(1)))
+    df <- df[df$date_added > last_checked,]
+    if (nrow(df)) {
+        df$date_added <- df$date_added |> as.POSIXct() |> format("%Y-%m-%d")
+        df$string_match <- NA
+        df$existing_sheet <- NA
+        to_check <- rbind(to_check, df)
+    }
+    to_check
 }
 
 for (u in urls) {
