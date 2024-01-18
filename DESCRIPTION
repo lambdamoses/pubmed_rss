@@ -8,13 +8,15 @@ Description: Automatially get feed from PubMed and bio or medRxiv using keywords
     and upload to a sheet for multiple people to update the museum database.
 License: GPL (>= 3)
 Imports: 
+    easyPubMed,
     gargle,
     gmailr,
     googlesheets4,
     lubridate,
     rbiorxiv,
     remotes,
-    stringr
+    stringr,
+    xml2
 Remotes:
     github::nicholasmfraser/rbiorxiv,
     github::noahhl/r-does-rss

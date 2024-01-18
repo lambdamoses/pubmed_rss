@@ -18,7 +18,7 @@ The code in this repo automatically finds new potentially relevant spatial trans
 8. The hard part is over. On the command line, in the directory where you cloned the repo, run `Rscript autolist.R`. Shouldn't take long but it won't finish instantly. That's it.
 
 ## About the `to_check` sheet
-`date_added`: Not the same as `date_published` in the other sheets in the Museum. This is the date when the feed is received; the papers themselves are usually a bit older.
+`date_added`: Date published from the feed. For bio/medRxiv entries, the date from the email is for the first version but the bioRxiv API is queried if the entry is already found in the database to get the date of the latest version in order to automatically update the entry.
 
 `pmid`: PubMed ID for the PubMed feed, to make it a bit easier to add the entry to other sheets if relevant.
 

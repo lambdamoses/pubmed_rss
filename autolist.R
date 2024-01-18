@@ -5,6 +5,8 @@ library(stringr)
 library(lubridate)
 library(rss)
 library(rbiorxiv)
+library(easyPubMed)
+library(xml2)
 # Gmail OAuth-----------
 gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
 gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
@@ -23,6 +25,13 @@ st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCM
 visium <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1R__6bbhMkenq1M5NePyMAVwqIH-27yBjh8XiC1LGlM6ICAAn2/?limit=15&utm_campaign=pubmed-2&fc=20220424112410"
 urls <- c(geomx, st, visium)
 
+.get_article_type <- function(pmid) {
+    info_xml <- get_pubmed_ids(pmid) |>
+        fetch_pubmed_data(retmax = 1L) |>
+        read_xml()
+    xml_find_first(info_xml, "//PublicationTypeList") |> xml_text()
+}
+
 .get_pubmed_feed <- function(url) {
     feed <- getFeed(url)$items
     df <- data.frame(date_published = vapply(feed, function(x) as.POSIXct(x$pubDate, tz = "UTC"), FUN.VALUE = POSIXct(1)),
@@ -37,6 +46,11 @@ urls <- c(geomx, st, visium)
                      }, FUN.VALUE = character(1)))
     df <- df[df$date_published > last_checked,]
     if (nrow(df)) {
+        df$type <- vapply(df$pmid, .get_article_type, FUN.VALUE = character(1))
+        df <- df[!str_detect(df$type, "(R|r)eview"),]
+        df$type <- NULL
+    }
+    if (nrow(df)) {
         df$date_published <- df$date_published |> as.POSIXct()
         return(df)
     } else return(NULL)
@@ -50,7 +64,7 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
 
 .extract_rxiv_info <- function(m) { # For one message
     entries <- str_split(m, "\\r\\n\\r\\n")[[1]]
-    entries <- entries[!str_detect(entries, "Forwarded M|message")]
+    entries <- entries[!str_detect(entries, "Forwarded (M|m)essage")]
     entries <- entries[!str_detect(entries, "Unsubscribe")]
     entries <- entries[str_length(entries) > 4L]
     entries[1] <- str_split(entries[1], "Results\\:\\r\\n")[[1]][2]
@@ -213,7 +227,7 @@ if (!is.null(new_res)) {
     to_check <- rbind(to_check, new_res)
     to_check <- to_check[!duplicated(to_check$title),]
 }
-
+# TODO: call the PubMed API to get protocols and reviews to remove
 # Write to sheet------------
 to_check$date_published <- format(as.POSIXct(to_check$date_published), "%Y/%m/%d")
 write_sheet(to_check, sheet_url, sheet = "to_check")
