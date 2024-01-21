@@ -81,11 +81,17 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
     entries <- lapply(entries, function(x) str_split(x, "\\r\\n")[[1]])
     # Remove names
     entries <- lapply(entries, function(x) {
-    name_inds <- which(str_detect(x, "[A-Z][a-z\\.]+ [A-Z][a-z\\.]+( ?:[A-Z][a-z\\.]+)?((, )|( and ))"))
-    # Anything between first line of names and the last 3 lines are names
-    if (length(x)-3 > max(name_inds))
-        name_inds <- c(name_inds, seq(max(name_inds) + 1, length(x) - 3))
-    x[-name_inds]
+        # Multiple whole names
+        reg1 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?((, )|( and ))"
+        # Single name
+        reg2 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?$"
+        # Multiple names, the last one incomplete
+        reg3 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?, [A-Z][a-z\\.]+( [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?)? $"
+        name_inds <- which(str_detect(x, reg1) | str_detect(x, reg2) | str_detect(x, reg3))
+        # Anything between first line of names and the last 3 lines are names
+        if (length(x)-3 > max(name_inds))
+            name_inds <- c(name_inds, seq(max(name_inds) + 1, length(x) - 3))
+        x[-name_inds]
   })
     # Extract URL
     urls <- vapply(entries, function(x) {
