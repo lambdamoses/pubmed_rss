@@ -12,14 +12,16 @@ Imports:
     gargle,
     gmailr,
     googlesheets4,
+    httr,
     lubridate,
+    purrr,
     rbiorxiv,
     remotes,
     stringr,
+    tibble,
     xml2
 Remotes:
-    github::nicholasmfraser/rbiorxiv,
-    github::noahhl/r-does-rss
+    github::nicholasmfraser/rbiorxiv
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.0

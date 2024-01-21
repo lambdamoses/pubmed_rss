@@ -3,10 +3,13 @@ library(gmailr)
 library(gargle)
 library(stringr)
 library(lubridate)
-library(rss)
+#library(rss)
 library(rbiorxiv)
 library(easyPubMed)
 library(xml2)
+library(httr)
+library(tibble)
+library(purrr)
 # Gmail OAuth-----------
 gs4_auth("museumofst@gmail.com", token = secret_read_rds("gs4.rds", "GARGLE_KEY"))
 gm_auth("museumofst@gmail.com", token = secret_read_rds("gm.rds", "GARGLE_KEY"))
@@ -32,28 +35,34 @@ urls <- c(geomx, st, visium)
     xml_find_first(info_xml, "//PublicationTypeList") |> xml_text()
 }
 
+.get_feed <- function(url) {
+    x <- GET(url) |> read_xml(options = "HUGE")
+    res_entry <- xml_find_all(x, "//*[name()='item']") |> as_list()
+    res_entry <- map(res_entry, function(x) {
+        names(x) <- make.unique(names(x))
+        x
+    })
+    tibble(date_published = map(res_entry, "pubDate") |> unlist(),
+           title = map(res_entry, "title") |> unlist(),
+           pmid = map(res_entry, ~ .x$identifier |> str_remove("^pmid\\:") |> as.integer()) |> unlist(),
+           journal = map(res_entry, ~ .x$source |> str_to_title()) |> unlist(),
+           URL = map_chr(res_entry, ~ {
+               name_use <- names(.x)[max(which(str_detect(names(.x), "^identifier")))]
+               str_replace(.x[[name_use]], "^doi\\:", "https://doi.org/")
+           }))
+}
+
 .get_pubmed_feed <- function(url) {
-    feed <- getFeed(url)$items
-    df <- data.frame(date_published = vapply(feed, function(x) as.POSIXct(x$pubDate, tz = "UTC"), FUN.VALUE = POSIXct(1)),
-                     title = vapply(feed, function(x) x$title, FUN.VALUE = character(1)),
-                     pmid = vapply(feed, function(x) x$identifier |> str_remove("^pmid\\:") |> as.integer(), FUN.VALUE = integer(1)),
-                     journal = vapply(feed, function(x) x$source |> str_to_title(), FUN.VALUE = character(1)),
-                     URL = vapply(feed, function(x) {
-                         names(x) <- make.unique(names(x))
-                         # should be the last identifier
-                         name_use <- names(x)[max(which(str_detect(names(x), "^identifier")))]
-                         paste0("https://doi.org/", str_remove(x[[name_use]], "^doi\\:"))
-                     }, FUN.VALUE = character(1)))
+    df <- .get_feed(url)
+    df$date_published <- as.POSIXct(df$date_published,
+                                    tryFormats = "%a, %d %b %Y %H:%M:%S %z")
     df <- df[df$date_published > last_checked,]
     if (nrow(df)) {
         df$type <- vapply(df$pmid, .get_article_type, FUN.VALUE = character(1))
         df <- df[!str_detect(df$type, "(R|r)eview"),]
         df$type <- NULL
     }
-    if (nrow(df)) {
-        df$date_published <- df$date_published |> as.POSIXct()
-        return(df)
-    } else return(NULL)
+    if (nrow(df)) return(df) else return(NULL)
 }
 
 pubmed_res <- lapply(urls, .get_pubmed_feed)
