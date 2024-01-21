@@ -53,6 +53,7 @@ urls <- c(geomx, st, visium)
 }
 
 .get_pubmed_feed <- function(url) {
+    cat("Reading PubMed feed\n")
     df <- .get_feed(url)
     df$date_published <- as.POSIXct(df$date_published,
                                     tryFormats = "%a, %d %b %Y %H:%M:%S %z")
@@ -233,12 +234,12 @@ if (!is.null(new_res)) {
     # Remove old entries that are already updated in the database
     new_res <- new_res[!(!new_res$updated & !is.na(new_res$existing_sheet)), ]
     new_res$updated <- NULL
+    new_res$date_published <- format(as.POSIXct(new_res$date_published), "%Y/%m/%d")
     to_check <- rbind(to_check, new_res)
     to_check <- to_check[!duplicated(to_check$title),]
 }
 # TODO: call the PubMed API to get protocols and reviews to remove
 # Write to sheet------------
-to_check$date_published <- format(as.POSIXct(to_check$date_published), "%Y/%m/%d")
 write_sheet(to_check, sheet_url, sheet = "to_check")
 last_checked <- Sys.time()
 saveRDS(last_checked, "last_checked.rds")
