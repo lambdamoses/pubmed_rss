@@ -195,7 +195,7 @@ if (!is.null(new_res)) {
     sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
                     "Analysis", "Prequel analysis", "Reanalysis")
     for (s in sheets_use) {
-        sh <- read_sheet(sheet_url, s, guess_max = 10)
+        sh <- read_sheet(sheet_url, s)
         sh$date_published <- as.POSIXct(ymd(sh$date_published), tz = "UTC") |> as.numeric()
         ref <- .get_rxiv_compare(sh$URL)
         ref_title <- .simp_str(sh$title)
