@@ -59,6 +59,9 @@ urls <- c(geomx, st, visium)
                                     tryFormats = "%a, %d %b %Y %H:%M:%S %z")
     df <- df[df$date_published > last_checked,]
     if (nrow(df)) {
+        # Remove protocols
+        is_protocol <- str_detect(str_to_lower(df$journal), "(methods in molecular biology)|(jove)|(protocol)")
+        df <- df[!is_protocol,]
         df$type <- vapply(df$pmid, .get_article_type, FUN.VALUE = character(1))
         df <- df[!str_detect(df$type, "(R|r)eview"),]
         df$type <- NULL
@@ -84,7 +87,7 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
         # Multiple whole names
         reg1 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?((, )|( and ))"
         # Single name
-        reg2 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?$"
+        reg2 <- "^[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?$"
         # Multiple names, the last one incomplete
         reg3 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?, [A-Z][a-z\\.]+( [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?)? $"
         name_inds <- which(str_detect(x, reg1) | str_detect(x, reg2) | str_detect(x, reg3))
@@ -239,6 +242,7 @@ if (!is.null(new_res)) {
     }
     # Remove old entries that are already updated in the database
     new_res <- new_res[!(!new_res$updated & !is.na(new_res$existing_sheet)), ]
+    new_res <- new_res[,c("date_published", "title", "pmid", "journal", "URL", "existing_sheet", "string_match")]
     new_res$updated <- NULL
     new_res$date_published <- format(as.POSIXct(new_res$date_published), "%Y/%m/%d")
     to_check <- rbind(to_check, new_res)
