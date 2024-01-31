@@ -186,6 +186,7 @@ if (!is.null(new_res)) {
     part_match[!str_detect(new_res$journal, "Rxiv$")] <- NA
     title_simp <- .simp_str(new_res$title)
     new_res$string_match <- part_match
+    new_res$URL <- ifelse(is.na(part_match), new_res$URL, paste0("https://doi.org/10.1101/", part_match))
     new_res$existing_sheet[part_match %in% irrelevant] <- "irrelevant"
     new_res$updated <- FALSE
     # Deal with bioRxiv and medRxiv entries from PubMed
