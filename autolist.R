@@ -85,11 +85,11 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX
     # Remove names
     entries <- lapply(entries, function(x) {
         # Multiple whole names
-        reg1 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?((, )|( and ))"
+        reg1 <- "^[A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*)?( [A-Z][a-zA-Z\\.-]*)?((, )|( and ))"
         # Single name
-        reg2 <- "^[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?$"
+        reg2 <- "^[A-Z][a-z\\.]* [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?$"
         # Multiple names, the last one incomplete
-        reg3 <- "[A-Z][a-z\\.]+ [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?, [A-Z][a-z\\.]+( [A-Z][a-zA-Z\\.-]+( [A-Z][a-zA-Z\\.-]+)?)? $"
+        reg3 <- "^[A-Z][a-z\\.]* [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?, [A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?)? $"
         name_inds <- which(str_detect(x, reg1) | str_detect(x, reg2) | str_detect(x, reg3))
         # Anything between first line of names and the last 3 lines are names
         if (length(x)-3 > max(name_inds))
@@ -249,7 +249,7 @@ if (!is.null(new_res)) {
     to_check <- rbind(to_check, new_res)
     to_check <- to_check[!duplicated(to_check$title),]
 }
-# TODO: call the PubMed API to get protocols and reviews to remove
+
 # Write to sheet------------
 write_sheet(to_check, sheet_url, sheet = "to_check")
 last_checked <- Sys.time()
