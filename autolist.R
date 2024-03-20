@@ -26,7 +26,12 @@ last_checked <- readRDS("last_checked.rds")
 geomx <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1ZSp7ZOQTWb6f7XIhdYoHOybYnbDfOV6dv96LPTgURfTQ2EgWt/?limit=15&utm_campaign=pubmed-2&fc=20220424112459"
 st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCMRe8gokq-75uxSqekzEmG/?limit=15&utm_campaign=pubmed-2&fc=20220424112150"
 visium <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1R__6bbhMkenq1M5NePyMAVwqIH-27yBjh8XiC1LGlM6ICAAn2/?limit=15&utm_campaign=pubmed-2&fc=20220424112410"
-urls <- c(geomx, st, visium)
+proteomics <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1dSaW42H3lP27KctEmjamkNUtVEyYRuxY8eM9za16qa1Gb7Qhl/?limit=15&utm_campaign=pubmed-2&fc=20240319195805"
+metabolomics <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1BOJ2J2KKlLHU1JzUwOlCd6YPMI6hUyKdaeuvsgoAK603AJUWN/?limit=15&utm_campaign=pubmed-2&fc=20240319195827"
+imc <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1BOJ2J2KKlLHU1JzUwOlCd6YPMI6hUyKdaeuvsgoAK603AJUWN/?limit=15&utm_campaign=pubmed-2&fc=20240319195827"
+msi <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1BOJ2J2KKlLHU1JzUwOlCd6YPMI6hUyKdaeuvsgoAK603AJUWN/?limit=15&utm_campaign=pubmed-2&fc=20240319195827"
+
+urls <- c(geomx, st, visium, proteomics, metabolomics, imc, msi)
 
 .get_article_type <- function(pmid) {
     info_xml <- get_pubmed_ids(pmid) |>
@@ -73,7 +78,10 @@ pubmed_res <- lapply(urls, .get_pubmed_feed)
 
 # bio/medRxiv------------------
 threads <- gm_threads(num_results = 20)
-terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish", "GeoMX", "in situ sequenc", "CosMX", "xenium")
+terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish",
+               "GeoMX", "in situ sequenc", "CosMX", "xenium",
+               "imaging mass cytometry", "mass spectrometry imaging",
+               "spatial proteomics", "spatial metabolomics")
 
 .extract_rxiv_info <- function(m) { # For one message
     entries <- str_split(m, "\\r\\n\\r\\n")[[1]]
