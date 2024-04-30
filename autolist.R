@@ -21,7 +21,7 @@ to_check <- to_check[!is.na(to_check$date_published),]
 
 if (!file.exists("last_checked.rds")) saveRDS(as.POSIXct(0), file = "last_checked.rds")
 last_checked <- readRDS("last_checked.rds")
-
+last_checked_pubmed <- readRDS("last_checked_pubmed.rds")
 # PubMed--------------
 geomx <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1ZSp7ZOQTWb6f7XIhdYoHOybYnbDfOV6dv96LPTgURfTQ2EgWt/?limit=15&utm_campaign=pubmed-2&fc=20220424112459"
 st <- "https://pubmed.ncbi.nlm.nih.gov/rss/search/1HK5U4U_QH8LXfanBvIif8FyuJFOCMRe8gokq-75uxSqekzEmG/?limit=15&utm_campaign=pubmed-2&fc=20220424112150"
@@ -62,7 +62,7 @@ urls <- c(geomx, st, visium, proteomics, metabolomics, imc, msi)
     df <- .get_feed(url)
     df$date_published <- as.POSIXct(df$date_published,
                                     tryFormats = "%a, %d %b %Y %H:%M:%S %z")
-    df <- df[df$date_published > last_checked,]
+    df <- df[df$date_published > last_checked_pubmed,]
     if (nrow(df)) {
         # Remove protocols
         is_protocol <- str_detect(str_to_lower(df$journal), "(methods in molecular biology)|(jove)|(protocol)")
@@ -73,8 +73,9 @@ urls <- c(geomx, st, visium, proteomics, metabolomics, imc, msi)
     }
     if (nrow(df)) return(df) else return(NULL)
 }
-
-pubmed_res <- lapply(urls, .get_pubmed_feed)
+# When the PubMed RSS is down, internal server error
+pubmed_res <- try(lapply(urls, .get_pubmed_feed))
+if (is(pubmed_res, "error")) pubmed_res <- NULL else saveRDS(Sys.time(), "last_checked_pubmed.rds")
 
 # bio/medRxiv------------------
 threads <- gm_threads(num_results = 20)
@@ -93,11 +94,11 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish",
     # Remove names
     entries <- lapply(entries, function(x) {
         # Multiple whole names
-        reg1 <- "^[A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*)?( [A-Z][a-zA-Z\\.-]*)?((, )|( and ))"
+        reg1 <- "[A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*?)( [A-Z][a-zA-Z\\.-]*?)?( [A-Z][a-zA-Z\\.-]*?)?((, )|( and ))"
         # Single name
-        reg2 <- "^[A-Z][a-z\\.]* [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?$"
+        reg2 <- "^[A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*?)? [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?$"
         # Multiple names, the last one incomplete
-        reg3 <- "^[A-Z][a-z\\.]* [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?, [A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?)? $"
+        reg3 <- "^[A-Z][a-z\\.]*( [A-Z][a-zA-Z\\.-]*?)? [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?, [A-Z][a-z\\.]*(( [A-Z][a-zA-Z\\.-]*?)? [A-Z][a-zA-Z\\.-]*( [A-Z][a-zA-Z\\.-]*)?)? $"
         name_inds <- which(str_detect(x, reg1) | str_detect(x, reg2) | str_detect(x, reg3))
         # Anything between first line of names and the last 3 lines are names
         if (length(x)-3 > max(name_inds))
@@ -205,9 +206,9 @@ if (!is.null(new_res)) {
     # What to do? I think I'll note it here since new versions sometimes have new datasets
     # Again only applies to subsequent versions of preprints
     sheets_use <- c("Prequel", "ROI selection", "NGS barcoding", "smFISH", "ISS", "De novo",
-                    "Analysis", "Prequel analysis", "Reanalysis")
+                    "Analysis", "Prequel analysis", "Reanalysis", "multiomics")
     for (s in sheets_use) {
-        sh <- read_sheet(sheet_url, s)
+        sh <- read_sheet(sheet_url, s, guess_max = 2000)
         sh$date_published <- as.POSIXct(ymd(sh$date_published), tz = "UTC") |> as.numeric()
         ref <- .get_rxiv_compare(sh$URL)
         ref_title <- .simp_str(sh$title)
@@ -262,6 +263,3 @@ if (!is.null(new_res)) {
 write_sheet(to_check, sheet_url, sheet = "to_check")
 last_checked <- Sys.time()
 saveRDS(last_checked, "last_checked.rds")
-
-# Delete tokens
-file.remove(list.files(pattern = "museumofst"))
