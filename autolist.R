@@ -74,11 +74,10 @@ urls <- c(geomx, st, visium, proteomics, metabolomics, imc, msi)
     if (nrow(df)) return(df) else return(NULL)
 }
 # When the PubMed RSS is down, internal server error
-pubmed_res <- try(lapply(urls, .get_pubmed_feed))
-if (is(pubmed_res, "error")) pubmed_res <- NULL else saveRDS(Sys.time(), "last_checked_pubmed.rds")
+pubmed_res <- tryCatch(lapply(urls, .get_pubmed_feed), error = function(e) NULL)
 
 # bio/medRxiv------------------
-threads <- gm_threads(num_results = 20)
+threads <- gm_threads(num_results = 50)
 terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish",
                "GeoMX", "in situ sequenc", "CosMX", "xenium",
                "imaging mass cytometry", "mass spectrometry imaging",
@@ -116,7 +115,7 @@ terms_bio <- c("spatial transcriptomics", "visium", "merfish", "seqfish",
     }, FUN.VALUE = character(1))
 
     # Extract date posted
-    date_regex <- "(?<=posted )\\d+ [A-Za-z]+ 20\\d{2}(?=,)"
+    date_regex <- "(?<=posted )\\d+ [A-Za-z]+ 20\\d{2}"
     dates <- vapply(entries, function(x) {
         x <- x[str_detect(x, date_regex)]
         as.POSIXct(str_extract(x, date_regex), tryFormats = "%e %B %Y")
@@ -261,5 +260,6 @@ if (!is.null(new_res)) {
 
 # Write to sheet------------
 write_sheet(to_check, sheet_url, sheet = "to_check")
+if (is(pubmed_res, "error")) pubmed_res <- NULL else saveRDS(Sys.time(), "last_checked_pubmed.rds")
 last_checked <- Sys.time()
 saveRDS(last_checked, "last_checked.rds")
